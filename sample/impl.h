@@ -19,6 +19,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+#include <wrl.h>
+#include <stdexcept>
+#include <string>
+
+using namespace Microsoft::WRL;
+
+using Microsoft::WRL::ComPtr;
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -48,6 +55,27 @@ struct ImplD3DBase {
 #else
 #define HR_CHECK(_HR) assert(SUCCEEDED(_HR))
 #endif
+
+inline void GetAssetsPath(_Out_writes_(pathSize) WCHAR* path, UINT pathSize)
+{
+	if (path == nullptr)
+	{
+		throw std::exception();
+	}
+
+	DWORD size = GetModuleFileNameW(nullptr, path, pathSize);
+	if (size == 0 || size == pathSize)
+	{
+		// Method failed or path was truncated.
+		throw std::exception();
+	}
+
+	WCHAR* lastSlash = wcsrchr(path, L'\\');
+	if (lastSlash)
+	{
+		*(lastSlash + 1) = L'\0';
+	}
+}
 
 template<typename T>
 inline void SafeRelease(T*& t, ULONG expectedCount=0)

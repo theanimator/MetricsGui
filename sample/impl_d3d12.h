@@ -21,7 +21,9 @@ SOFTWARE.
 */
 
 #include <d3d12.h>
+#include "d3dx12.h"
 #include <dxgi1_4.h>
+#include <D3Dcompiler.h>
 
 enum {
     D3D12_NUM_BACK_BUFFERS     = 3,
@@ -68,6 +70,11 @@ struct ImplD3D12 : public ImplD3DBase {
     ID3D12RootSignature*        RootSignature;
     ID3D12Resource*             VertexBuffer;
     D3D12_VERTEX_BUFFER_VIEW    VertexBufferView;
+	ComPtr<ID3D12Resource>		Texture;
+
+	static const UINT TextureWidth = 256;
+	static const UINT TextureHeight = 256;
+	static const UINT TexturePixelSize = 4;	// The number of bytes used to represent a pixel in the texture.
 
     ImplD3D12();
     virtual ~ImplD3D12() {}
@@ -81,4 +88,6 @@ struct ImplD3D12 : public ImplD3DBase {
     virtual ID3D12Device* GetD3D12Device() const override { return Device; }
 
     void WaitForLastSubmittedFrame();
+	std::vector<UINT8> GenerateTextureData();
+	std::wstring GetAssetFullPath(LPCWSTR assetName);
 };

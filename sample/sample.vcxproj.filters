@@ -3,6 +3,7 @@
   <ItemGroup>
     <FxCompile Include="ps.hlsl" />
     <FxCompile Include="vs.hlsl" />
+    <FxCompile Include="shaders.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
@@ -42,6 +43,7 @@
     <ClInclude Include="..\metrics_gui\include\metrics_gui\metrics_gui.h">
       <Filter>MetricsGui</Filter>
     </ClInclude>
+    <ClInclude Include="d3dx12.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="MetricsGui">

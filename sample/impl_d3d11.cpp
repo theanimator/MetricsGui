@@ -192,7 +192,7 @@ void ImplD3D11::Resize(
     DXGI_SWAP_CHAIN_DESC1 desc = {};
     desc.Width              = width;
     desc.Height             = height;
-    desc.Format             = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.Stereo             = FALSE;
     desc.SampleDesc.Count   = 1;
     desc.SampleDesc.Quality = 0;
@@ -215,7 +215,7 @@ void ImplD3D11::Resize(
 
     D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
     rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    rtvDesc.Format        = DXGI_FORMAT_B8G8R8A8_UNORM;
+    rtvDesc.Format        = DXGI_FORMAT_R8G8B8A8_UNORM;
     HR_CHECK(Device->CreateRenderTargetView(backBuffer, &rtvDesc, &BackBufferRTV));
 
     backBuffer->Release();

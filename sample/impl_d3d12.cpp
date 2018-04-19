@@ -25,6 +25,7 @@ SOFTWARE.
 #include <imgui_impl_dx12.h>
 #include <stdint.h>
 #include <windows.h>
+#include <vector>
 
 #include "impl.h"
 #include "impl_d3d12.h"
@@ -55,6 +56,16 @@ ImplD3D12::ImplD3D12()
     memset(BackBuffer, 0, sizeof(BackBuffer));
     memset(FrameCtxt,  0, sizeof(FrameCtxt));
 }
+
+// Helper function for resolving the full path of assets.
+std::wstring ImplD3D12::GetAssetFullPath(LPCWSTR assetName)
+{
+	WCHAR assetsPath[512];
+	GetAssetsPath(assetsPath, _countof(assetsPath));
+	std::wstring m_assetsPath = assetsPath;
+	return m_assetsPath + assetName;
+}
+
 
 bool ImplD3D12::Initialize(
     HWND hwnd)
@@ -129,7 +140,7 @@ bool ImplD3D12::Initialize(
     {
         D3D12_DESCRIPTOR_HEAP_DESC desc = {};
         desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        desc.NumDescriptors = 1;
+        desc.NumDescriptors = 2;
         desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         desc.NodeMask       = 1;
         HR_CHECK(Device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&SRVHeap)));
@@ -143,79 +154,84 @@ bool ImplD3D12::Initialize(
         HR_CHECK(Device->CreateCommandQueue(&desc, IID_PPV_ARGS(&CommandQueue)));
     }
 
-    {
-        /*
-        D3D12_ROOT_PARAMETER param[] = {
-        };
-        */
+	// Create the root signature.
+	{
+		D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
 
-        D3D12_ROOT_SIGNATURE_DESC desc = {};
-        /*
-        desc.NumParameters = _countof(param);
-        desc.pParameters   = param;
-        */
-        desc.Flags         =
-            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+		// This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
+		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        ID3DBlob* blob = nullptr;
-        HR_CHECK(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, nullptr));
-        HR_CHECK(Device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&RootSignature)));
-        blob->Release();
-    }
+		CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+		ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
-    {
-        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "COLOR",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 8, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
+		CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+		rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
 
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
-        desc.NodeMask              = 1;
-        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        desc.InputLayout           = { inputElementDescs, _countof(inputElementDescs) };
-        desc.pRootSignature        = RootSignature;
-        desc.VS                    = { vs, _countof(vs) };
-        desc.PS                    = { ps, _countof(ps) };
-        desc.SampleMask            = UINT_MAX;
-        desc.NumRenderTargets      = 1;
-        desc.RTVFormats[0]         = DXGI_FORMAT_B8G8R8A8_UNORM;
-        desc.SampleDesc.Count      = 1;
-        desc.Flags                 = D3D12_PIPELINE_STATE_FLAG_NONE;
+		D3D12_STATIC_SAMPLER_DESC sampler = {};
+		sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+		sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+		sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+		sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+		sampler.MipLODBias = 0;
+		sampler.MaxAnisotropy = 0;
+		sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+		sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+		sampler.MinLOD = 0.0f;
+		sampler.MaxLOD = D3D12_FLOAT32_MAX;
+		sampler.ShaderRegister = 0;
+		sampler.RegisterSpace = 0;
+		sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-        desc.RasterizerState.FillMode              = D3D12_FILL_MODE_SOLID;
-        desc.RasterizerState.CullMode              = D3D12_CULL_MODE_BACK;
-        desc.RasterizerState.FrontCounterClockwise = FALSE;
-        desc.RasterizerState.DepthBias             = D3D12_DEFAULT_DEPTH_BIAS;
-        desc.RasterizerState.DepthBiasClamp        = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
-        desc.RasterizerState.SlopeScaledDepthBias  = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
-        desc.RasterizerState.DepthClipEnable       = TRUE;
-        desc.RasterizerState.MultisampleEnable     = FALSE;
-        desc.RasterizerState.AntialiasedLineEnable = FALSE;
-        desc.RasterizerState.ForcedSampleCount     = 0;
-        desc.RasterizerState.ConservativeRaster    = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+		rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-        desc.BlendState.AlphaToCoverageEnable                 = FALSE;
-        desc.BlendState.IndependentBlendEnable                = FALSE;
-        desc.BlendState.RenderTarget[0].BlendEnable           = FALSE;
-        desc.BlendState.RenderTarget[0].LogicOpEnable         = FALSE;
-        desc.BlendState.RenderTarget[0].SrcBlend              = D3D12_BLEND_ONE;
-        desc.BlendState.RenderTarget[0].DestBlend             = D3D12_BLEND_ZERO;
-        desc.BlendState.RenderTarget[0].BlendOp               = D3D12_BLEND_OP_ADD;
-        desc.BlendState.RenderTarget[0].SrcBlendAlpha         = D3D12_BLEND_ONE;
-        desc.BlendState.RenderTarget[0].DestBlendAlpha        = D3D12_BLEND_ZERO;
-        desc.BlendState.RenderTarget[0].BlendOpAlpha          = D3D12_BLEND_OP_ADD;
-        desc.BlendState.RenderTarget[0].LogicOp               = D3D12_LOGIC_OP_NOOP;
-        desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+		ComPtr<ID3DBlob> signature;
+		ComPtr<ID3DBlob> error;
+		D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error);
+		Device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&RootSignature));
+	}
 
-        desc.DepthStencilState.DepthEnable   = FALSE;
-        desc.DepthStencilState.StencilEnable = FALSE;
+	// Create the pipeline state, which includes compiling and loading shaders.
+	{
+		ComPtr<ID3DBlob> vertexShader;
+		ComPtr<ID3DBlob> pixelShader;
 
-        HR_CHECK(Device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&PipelineState)));
+#if defined(_DEBUG)
+		// Enable better shader debugging with the graphics debugging tools.
+		UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+		UINT compileFlags = 0;
+#endif
+		std::wstring m_assetsPath = GetAssetFullPath(L"shaders.hlsl");
+
+
+		HR_CHECK(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
+		HR_CHECK(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+
+		// Define the vertex input layout.
+		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
+		{
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+		};
+
+		// Describe and create the graphics pipeline state object (PSO).
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+		psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+		psoDesc.pRootSignature = RootSignature;
+		psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+		psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+		psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		psoDesc.DepthStencilState.DepthEnable = FALSE;
+		psoDesc.DepthStencilState.StencilEnable = FALSE;
+		psoDesc.SampleMask = UINT_MAX;
+		psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		psoDesc.NumRenderTargets = 1;
+		psoDesc.RTVFormats[0] = DXGI_FORMAT_B8G8R8A8_UNORM;
+		psoDesc.SampleDesc.Count = 1;
+
+        HR_CHECK(Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&PipelineState)));
     }
 
     {
@@ -268,23 +284,201 @@ bool ImplD3D12::Initialize(
 
     HR_CHECK(Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, FrameCtxt[0].CommandAllocator, nullptr, IID_PPV_ARGS(&CmdList)));
 
-    HR_CHECK(CmdList->Close());
+	ComPtr<ID3D12Resource> textureUploadHeap;
 
-    HR_CHECK(Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&Fence)));
+	// Create the texture.
+	{
+		std::vector<UINT8> pixels = GenerateTextureData();
 
-    FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (FenceEvent == nullptr) {
-        HR_CHECK(HRESULT_FROM_WIN32(GetLastError()));
-    }
+		D3D12_HEAP_PROPERTIES props;
+		memset(&props, 0, sizeof(D3D12_HEAP_PROPERTIES));
+		props.Type = D3D12_HEAP_TYPE_DEFAULT;
+		props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+		props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+		D3D12_RESOURCE_DESC desc;
+		ZeroMemory(&desc, sizeof(desc));
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		desc.Alignment = 0;
+		desc.Width = TextureWidth;
+		desc.Height = TextureHeight;
+		desc.DepthOrArraySize = 1;
+		desc.MipLevels = 1;
+		desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+		desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+		ID3D12Resource* pTexture = NULL;
+		Device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
+			D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&pTexture));
+
+		UINT uploadPitch = (TextureWidth * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+		UINT uploadSize = TextureHeight * uploadPitch;
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+		desc.Alignment = 0;
+		desc.Width = uploadSize;
+		desc.Height = 1;
+		desc.DepthOrArraySize = 1;
+		desc.MipLevels = 1;
+		desc.Format = DXGI_FORMAT_UNKNOWN;
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+		desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+		props.Type = D3D12_HEAP_TYPE_UPLOAD;
+		props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+		props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+		ID3D12Resource* uploadBuffer = NULL;
+		HRESULT hr = Device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
+			D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&uploadBuffer));
+		assert(SUCCEEDED(hr));
+
+		void* mapped = NULL;
+		D3D12_RANGE range = { 0, uploadSize };
+		hr = uploadBuffer->Map(0, &range, &mapped);
+		assert(SUCCEEDED(hr));
+		memcpy((void*)((uintptr_t)mapped), static_cast<void*>(pixels.data()),TextureHeight * TextureWidth * 4);
+		uploadBuffer->Unmap(0, &range);
+
+		D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+		srcLocation.pResource = uploadBuffer;
+		srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		srcLocation.PlacedFootprint.Footprint.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		srcLocation.PlacedFootprint.Footprint.Width = TextureWidth;
+		srcLocation.PlacedFootprint.Footprint.Height = TextureHeight;
+		srcLocation.PlacedFootprint.Footprint.Depth = 1;
+		srcLocation.PlacedFootprint.Footprint.RowPitch = uploadPitch;
+
+		D3D12_TEXTURE_COPY_LOCATION dstLocation = {};
+		dstLocation.pResource = pTexture;
+		dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		dstLocation.SubresourceIndex = 0;
+
+		D3D12_RESOURCE_BARRIER barrier = {};
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+		barrier.Transition.pResource = pTexture;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+		ID3D12Fence* fence = NULL;
+		hr = Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+		assert(SUCCEEDED(hr));
+
+		HANDLE event = CreateEvent(0, 0, 0, 0);
+		assert(event != NULL);
+
+		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queueDesc.NodeMask = 1;
+
+		ID3D12CommandQueue* cmdQueue = NULL;
+		hr = Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&cmdQueue));
+		assert(SUCCEEDED(hr));
+
+		ID3D12CommandAllocator* cmdAlloc = NULL;
+		hr = Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&cmdAlloc));
+		assert(SUCCEEDED(hr));
+
+		ID3D12GraphicsCommandList* cmdList = NULL;
+		hr = Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, cmdAlloc, NULL, IID_PPV_ARGS(&cmdList));
+		assert(SUCCEEDED(hr));
+
+		cmdList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, NULL);
+		cmdList->ResourceBarrier(1, &barrier);
+
+		hr = cmdList->Close();
+		assert(SUCCEEDED(hr));
+
+		cmdQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&cmdList);
+		hr = cmdQueue->Signal(fence, 1);
+		assert(SUCCEEDED(hr));
+
+		fence->SetEventOnCompletion(1, event);
+		WaitForSingleObject(event, INFINITE);
+
+		cmdList->Release();
+		cmdAlloc->Release();
+		cmdQueue->Release();
+		CloseHandle(event);
+		fence->Release();
+		uploadBuffer->Release();
+
+		UINT mCbvSrvDescriptorSize = Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+		CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(SRVHeap->GetCPUDescriptorHandleForHeapStart());
+		hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+		// Describe and create a SRV for the texture.
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+		Device->CreateShaderResourceView(pTexture, &srvDesc, hDescriptor);
+
+		// Close the command list and execute it to begin the initial GPU setup.
+		HR_CHECK(CmdList->Close());
+
+		HR_CHECK(Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&Fence)));
+
+		FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+		if (FenceEvent == nullptr) {
+			HR_CHECK(HRESULT_FROM_WIN32(GetLastError()));
+		}
+	}
 
     ImGui_ImplDX12_Init(hwnd, D3D12_NUM_FRAMES_IN_FLIGHT, Device,
-        DXGI_FORMAT_B8G8R8A8_UNORM,
+		DXGI_FORMAT_B8G8R8A8_UNORM,
         SRVHeap->GetCPUDescriptorHandleForHeapStart(),
         SRVHeap->GetGPUDescriptorHandleForHeapStart());
     ImGui_ImplDX12_CreateDeviceObjects();
 
     return true;
 }
+
+// Generate a simple black and white checkerboard texture.
+std::vector<UINT8> ImplD3D12::GenerateTextureData()
+{
+	const UINT rowPitch = TextureWidth * TexturePixelSize;
+	const UINT cellPitch = rowPitch >> 3;		// The width of a cell in the checkboard texture.
+	const UINT cellHeight = TextureWidth >> 3;	// The height of a cell in the checkerboard texture.
+	const UINT textureSize = rowPitch * TextureHeight;
+
+	std::vector<UINT8> data(textureSize);
+	UINT8* pData = &data[0];
+
+	for (UINT n = 0; n < textureSize; n += TexturePixelSize)
+	{
+		UINT x = n % rowPitch;
+		UINT y = n / rowPitch;
+		UINT i = x / cellPitch;
+		UINT j = y / cellHeight;
+
+		if (i % 2 == j % 2)
+		{
+			pData[n] = 0xff;		// R
+			pData[n + 1] = 0xff;	// G
+			pData[n + 2] = 0xff;	// B
+			pData[n + 3] = 0xff;	// A
+		}
+		else
+		{
+			pData[n] = 0x00;		// R
+			pData[n + 1] = 0x00;	// G
+			pData[n + 2] = 0x00;	// B
+			pData[n + 3] = 0xff;	// A
+		}
+	}
+
+	return data;
+}
+
 
 void ImplD3D12::Finalize()
 {
@@ -398,15 +592,25 @@ void ImplD3D12::Render(
     scissorRect.bottom = Height;
 
     CmdList->SetGraphicsRootSignature(RootSignature);
+	ID3D12DescriptorHeap* ppHeaps[] = {SRVHeap };
+	CmdList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
     CmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     CmdList->IASetVertexBuffers(0, 1, &VertexBufferView);
     CmdList->RSSetViewports(1, &viewport);
     CmdList->OMSetRenderTargets(1, &BackBuffer[backBufferIdx].Handle, FALSE, nullptr);
     CmdList->RSSetScissorRects(1, &scissorRect);
 
+	UINT mCbvSrvDescriptorSize = Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE tex(SRVHeap->GetGPUDescriptorHandleForHeapStart());
+	tex.Offset(1, mCbvSrvDescriptorSize);
+
+	CmdList->SetGraphicsRootDescriptorTable(0, tex);
+
     CmdList->DrawInstanced(3, 1, 0, 0);
 
-    CmdList->SetDescriptorHeaps(1, &SRVHeap);
+	CmdList->SetGraphicsRootDescriptorTable(0, SRVHeap->GetGPUDescriptorHandleForHeapStart());
+
     ImGui::Render();
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
